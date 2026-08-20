@@ -15,4 +15,3 @@ models/pipeline_run_summary.json
 .gitignore
 .dockerignore
 README.md
-requirements-dev.txt

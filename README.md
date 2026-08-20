@@ -88,8 +88,10 @@ python -m venv .venv
 source .venv/Scripts/activate      # Windows Git Bash
 pip install -r requirements-dev.txt
 
-# 2. (Already run once — committed state is in mlflow.db/mlruns/. To reproduce from
-#    scratch: rm -rf mlflow.db mlruns/ models/pipeline_run_summary.json first.)
+# 2. Build the MLflow registry state (mlflow.db/mlruns/ are NOT committed — see
+#    ADR-007: MLflow's local file store bakes an absolute path into every artifact
+#    reference at creation time, so a registry built on one machine can't be
+#    cloned onto another. CI and Docker both regenerate it fresh the same way.)
 python -m src.mlops.train              # registers v1, promotes to champion
 python -m src.mlops.pipeline           # drift-injected retrain attempt (v2, rejected)
 python -m src.mlops.pipeline --no-drift  # demonstrates the "nothing to do" path

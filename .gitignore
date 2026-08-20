@@ -7,3 +7,7 @@ data/processed/
 .ipynb_checkpoints/
 .env
 .claude/settings.local.json
+mlflow.db
+mlruns/
+models/pipeline_run_summary.json
+docs/drift_report.html

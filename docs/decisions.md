@@ -68,14 +68,25 @@ drift-injected data actually scored *worse* (recall 0.8204 vs. champion 0.8311) 
 was correctly rejected — see the README for why that's a feature of the demo, not a
 disappointing result: it's proof the governance gate isn't a rubber stamp.
 
-## ADR-007: MLflow registry state (mlflow.db, mlruns/) committed to the repo
+## ADR-007: MLflow registry state (mlflow.db, mlruns/) is NOT committed — unlike
+## Projects 1–3's trained-model artifacts
 
-Same reasoning as the trained-model artifacts committed in Projects 1–3: cloning this
-repo and running `uvicorn` should produce a working `/predict`, `/model-history`, and
-`/drift-status` immediately, without first requiring `python -m src.mlops.train`. The
-committed state reflects one real run of `src/mlops/train.py` followed by one real run
-of `src/mlops/pipeline.py` (with drift injected) — champion v1, rejected challenger
-v2 — reproducible by anyone via the fixed random seeds in `mlops/config.py`.
+The first version of this ADR argued for committing `mlflow.db`/`mlruns/`, matching
+the trained-model artifacts committed in Projects 1–3. That was wrong, and the
+mistake shipped before being caught: the initial push to GitHub broke CI immediately
+(`test_health` and `test_predict_returns_valid_response` failed with "No 'champion'
+model found") — the exact same bug described in ADR-009, just discovered on the
+Linux CI runner instead of in Docker first. MLflow's local file store bakes an
+**absolute path**, resolved at the moment a run is logged, into every artifact
+reference (`file:C:/Users/Hitalo Uzan/.../mlruns/1/<run_id>/artifacts`) — that
+reference is meaningless on any other machine, including GitHub's runner, including
+another contributor's clone. Unlike a `.joblib` file (a self-contained blob), MLflow's
+registry state is inherently tied to the filesystem path of the machine that created
+it, so "commit it for reproducibility" doesn't hold the way it did for Projects 1–3.
+`mlflow.db`/`mlruns/` are now gitignored; CI, Docker, and local dev all generate the
+registry fresh via `python -m src.mlops.train && python -m src.mlops.pipeline` — one
+consistent, actually-correct behavior instead of a snapshot that only worked on the
+machine that made it.
 
 ## ADR-008: The "observability dashboard" is MLflow's own UI plus a small API — not a rebuilt frontend
 
@@ -88,19 +99,21 @@ integrating into another system, while `mlflow ui` remains the actual dashboard 
 human. Building a custom frontend to duplicate MLflow's own UI would be effort spent
 re-deriving a tool that already exists, which project 5 is a much better showcase for.
 
-## ADR-009: Docker trains fresh inside the container — doesn't copy the host's mlflow.db
+## ADR-009: Docker trains fresh inside the container — doesn't copy a host-built mlflow.db
 
-Verified before shipping, not assumed safe: MLflow's SQLite backend stores each run's
-`artifact_uri` as an **absolute path resolved at the moment the run was logged** —
-inspecting the committed `mlflow.db` shows entries like
-`file:C:/Users/Hitalo Uzan/OneDrive/.../churn-mlops/mlruns/1/<run_id>/artifacts`. That
-path is meaningless inside a Linux container. Copying the host-generated `mlflow.db`
-and `mlruns/` into the image verbatim would build successfully and then fail at
+Same root cause as ADR-007, found first here: MLflow's SQLite backend stores each
+run's `artifact_uri` as an **absolute path resolved at the moment the run was
+logged** — a locally-generated `mlflow.db` had entries like
+`file:C:/Users/Hitalo Uzan/OneDrive/.../churn-mlops/mlruns/1/<run_id>/artifacts`,
+meaningless inside a Linux container (and, it turned out, meaningless on GitHub's CI
+runner too — see ADR-007's postmortem). Copying a host-generated `mlflow.db` and
+`mlruns/` into the image verbatim would build successfully and then fail at
 `/predict` time with a "model file not found" error — a bug that a build-succeeded
-CI check would not catch. Instead, `Dockerfile`'s `trainer` stage runs
+CI check would not catch on its own. Instead, `Dockerfile`'s `trainer` stage runs
 `src.mlops.train` and `src.mlops.pipeline` **inside the container**, so every stored
-path is `/app/mlruns/...` and self-consistent. The final image copies only the
-resulting `mlflow.db`/`mlruns/`/`pipeline_run_summary.json` out of that stage, not the
+path is `/app/mlruns/...` and self-consistent — the same fix `.github/workflows/ci.yml`
+applies before running pytest. The final image copies only the resulting
+`mlflow.db`/`mlruns/`/`pipeline_run_summary.json` out of the trainer stage, not the
 heavier training dependencies (evidently, statsmodels) needed to produce them.
 
 ## ADR-010: Python 3.14 as the dev environment

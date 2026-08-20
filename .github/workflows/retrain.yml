@@ -1,0 +1,57 @@
+name: Retrain
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # weekly, Monday 06:00 UTC
+  workflow_dispatch:
+    inputs:
+      no_drift:
+        description: "Run against undrifted data (demonstrates the no-op path)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run retraining pipeline
+        run: |
+          if [ "${{ inputs.no_drift }}" = "true" ]; then
+            python -m src.mlops.pipeline --no-drift
+          else
+            python -m src.mlops.pipeline
+          fi
+
+      - name: Summarize run
+        id: summary
+        run: |
+          python - <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          with open("models/pipeline_run_summary.json") as f:
+              s = json.load(f)
+          print(f"**Drift detected:** {s['drift_detected']} ({s['trigger_reason']})")
+          print(f"**Retrained:** {s['retrained']}")
+          if s.get("promotion"):
+              print(f"**Promoted:** {s['promotion']['promoted']} — {s['promotion']['reason']}")
+          EOF
+
+      - name: Commit updated registry state
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add mlflow.db mlruns/ models/ docs/drift_report.html
+          git diff --cached --quiet && echo "No changes to commit" && exit 0
+          git commit -m "chore: automated retraining run [skip ci]"
+          git push

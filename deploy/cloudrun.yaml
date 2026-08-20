@@ -1,0 +1,32 @@
+# Reference Cloud Run service definition — apply with:
+#   gcloud run services replace deploy/cloudrun.yaml --region=<region>
+# Not applied yet; local Docker run is the current verification path (see README).
+# Note: this ships a snapshot of the MLflow registry baked in at image build
+# time (see Dockerfile) — a real deployment would point MLFLOW_TRACKING_URI
+# at a shared Postgres-backed MLflow server instead, so retraining runs from
+# CI update a registry every replica can see. Out of scope here — see ADR-009.
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: churn-mlops-api
+spec:
+  template:
+    spec:
+      containers:
+        - image: gcr.io/PROJECT_ID/churn-mlops-api:latest
+          ports:
+            - containerPort: 8080
+          resources:
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      containerConcurrency: 40
+  traffic:
+    - latestRevision: true
+      percent: 100

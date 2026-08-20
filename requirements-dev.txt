@@ -1,0 +1,6 @@
+-r requirements.txt
+evidently==0.7.21
+pytest==9.1.1
+ruff==0.16.3
+httpx==0.28.1
+python-multipart==0.0.32
